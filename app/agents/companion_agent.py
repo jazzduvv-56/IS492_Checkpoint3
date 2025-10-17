@@ -14,7 +14,7 @@ class CompanionAgent:
 
     def __init__(self):
         self.client = Groq(api_key=os.getenv("GROQ_API_KEY"))
-        self.model = "llama-3.1-70b-versatile"  # Using Groq model
+        self.model = "llama-3.3-70b-versatile"  # Using Groq model
 
         # System prompt for elderly care companion
         self.system_prompt = """You are Carely, a warm, empathetic AI companion designed specifically for elderly care. Your role is to:

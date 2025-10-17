@@ -6,7 +6,7 @@ import json
 class EmergencyDetector:
     def __init__(self):
         self.client = Groq(api_key=os.getenv("GROQ_API_KEY"))
-        self.model = "llama-3.1-70b-versatile"
+        self.model = "llama-3.3-70b-versatile"
         
     def detect_emergency(self, text: str) -> Dict[str, Any]:
         """

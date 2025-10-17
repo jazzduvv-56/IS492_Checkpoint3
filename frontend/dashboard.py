@@ -291,6 +291,10 @@ def show_chat_interface(user_id: int):
     # Chat container
     chat_container = st.container()
     
+    # Initialize TTS state
+    if 'playing_audio' not in st.session_state:
+        st.session_state.playing_audio = None
+    
     with chat_container:
         # Display chat history
         for idx, message in enumerate(st.session_state.chat_history[-10:]):  # Show last 10 messages
@@ -306,9 +310,14 @@ def show_chat_interface(user_id: int):
                     
                     with msg_col2:
                         if st.button("🔊", key=f"listen_{idx}", help="Listen to this message"):
-                            audio_bytes = generate_speech_audio(message["content"], slow=True)
-                            if audio_bytes:
-                                st.audio(audio_bytes, format='audio/mp3')
+                            st.session_state.playing_audio = idx
+                            st.rerun()
+                    
+                    if st.session_state.playing_audio == idx:
+                        audio_bytes = generate_speech_audio(message["content"], slow=True)
+                        if audio_bytes:
+                            st.audio(audio_bytes, format='audio/mp3', autoplay=True)
+                            st.session_state.playing_audio = None
     
     # Integrated input bar with voice and text
     st.markdown("---")

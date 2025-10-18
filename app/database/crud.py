@@ -214,6 +214,31 @@ class MedicationLogCRUD:
                 "adherence_rate": (taken / total * 100) if total > 0 else 0,
                 "logs": logs
             }
+    
+    @staticmethod
+    def check_recent_medication_log(user_id: int, medication_id: int, hours: int = 24) -> Optional[MedicationLog]:
+        """Check if medication was logged recently (for duplicate detection)"""
+        with get_session() as session:
+            cutoff_time = datetime.now() - timedelta(hours=hours)
+            query = select(MedicationLog).where(
+                MedicationLog.user_id == user_id,
+                MedicationLog.medication_id == medication_id,
+                MedicationLog.taken_time >= cutoff_time,
+                MedicationLog.status == "taken"
+            ).order_by(MedicationLog.taken_time.desc())
+            return session.exec(query).first()
+    
+    @staticmethod
+    def get_today_medication_logs(user_id: int, medication_id: int) -> List[MedicationLog]:
+        """Get all medication logs for today"""
+        with get_session() as session:
+            today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            query = select(MedicationLog).where(
+                MedicationLog.user_id == user_id,
+                MedicationLog.medication_id == medication_id,
+                MedicationLog.taken_time >= today_start
+            ).order_by(MedicationLog.taken_time.desc())
+            return session.exec(query).all()
 
 class CaregiverAlertCRUD:
     @staticmethod

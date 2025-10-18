@@ -78,17 +78,36 @@ Always respond with empathy and care, as if you're genuinely concerned about the
 
     def log_medication_tool(self,
                             user_id: int,
-                            medication_name: str,
-                            notes: str = "") -> str:
-        """Tool to log medication intake"""
+                            medication_name: str = None,
+                            notes: str = "",
+                            medication_id: int = None) -> str:
+        """Tool to log medication intake with duplicate detection"""
         try:
-            medications = MedicationCRUD.get_user_medications(user_id)
-            medication = next((med for med in medications
-                               if medication_name.lower() in med.name.lower()),
-                              None)
+            # Find medication either by ID or name
+            if medication_id:
+                medications = MedicationCRUD.get_user_medications(user_id)
+                medication = next((med for med in medications if med.id == medication_id), None)
+            elif medication_name:
+                medications = MedicationCRUD.get_user_medications(user_id)
+                medication = next((med for med in medications
+                                   if medication_name.lower() in med.name.lower()),
+                                  None)
+            else:
+                return "Please specify which medication you took."
 
             if not medication:
-                return f"I couldn't find a medication named '{medication_name}' in your schedule. Please check the spelling or ask your caregiver to add it."
+                return f"I couldn't find that medication in your schedule. Please check the spelling or ask your caregiver to add it."
+
+            # Check for recent duplicate logs (within last 6 hours)
+            recent_log = MedicationLogCRUD.check_recent_medication_log(
+                user_id=user_id,
+                medication_id=medication.id,
+                hours=6
+            )
+            
+            if recent_log:
+                time_str = recent_log.taken_time.strftime('%I:%M %p')
+                return f"I already logged your {medication.name} earlier today at {time_str}. Would you like me to update that entry, or did you take another dose?"
 
             # Log the medication as taken
             MedicationLogCRUD.log_medication_taken(
@@ -98,7 +117,7 @@ Always respond with empathy and care, as if you're genuinely concerned about the
                 status="taken",
                 notes=notes)
 
-            return f"Great! I've recorded that you took your {medication.name} ({medication.dosage}) at {datetime.now().strftime('%I:%M %p')}."
+            return f"Got it! I've logged your {medication.name} for today. You're staying on track! 🌟"
 
         except Exception as e:
             return f"I had trouble logging your medication. Please try again or contact your caregiver."

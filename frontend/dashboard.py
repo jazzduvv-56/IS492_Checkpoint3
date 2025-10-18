@@ -284,6 +284,35 @@ def show_chat_interface(user_id: int):
             st.session_state.chat_history.append({"role": "user", "content": conv.message, "timestamp": conv.timestamp})
             st.session_state.chat_history.append({"role": "assistant", "content": conv.response, "timestamp": conv.timestamp})
     
+    # Check for pending reminders and display them proactively
+    if 'reminders_displayed' not in st.session_state:
+        st.session_state.reminders_displayed = set()
+    
+    pending_reminders = ReminderCRUD.get_pending_reminders(user_id)
+    for reminder in pending_reminders:
+        if reminder.id not in st.session_state.reminders_displayed:
+            # Add reminder to chat as an assistant message
+            reminder_content = reminder.message
+            
+            # Add quick action button for medication reminders
+            quick_actions = []
+            if reminder.reminder_type == "medication":
+                quick_actions = ["log_medication"]
+            
+            st.session_state.chat_history.append({
+                "role": "assistant",
+                "content": reminder_content,
+                "timestamp": reminder.scheduled_time,
+                "quick_actions": quick_actions,
+                "reminder_id": reminder.id,
+                "medication_id": reminder.medication_id
+            })
+            
+            st.session_state.reminders_displayed.add(reminder.id)
+            
+            # Mark reminder as displayed (completed)
+            ReminderCRUD.complete_reminder(reminder.id)
+    
     # Chat container
     chat_container = st.container()
     
@@ -367,19 +396,25 @@ def show_chat_interface(user_id: int):
         st.session_state.pending_action = None
         
         if action == "log_medication":
-            medications = MedicationCRUD.get_user_medications(user_id)
-            if medications:
-                response_text = st.session_state.companion_agent.log_medication_tool(
-                    user_id=user_id,
-                    medication_name=medications[0].name
-                )
-                st.session_state.chat_history.append({
-                    "role": "assistant",
-                    "content": response_text,
-                    "timestamp": datetime.now(),
-                    "quick_actions": []
-                })
-                st.rerun()
+            # Find the most recent reminder with medication_id
+            medication_id = None
+            for msg in reversed(st.session_state.chat_history):
+                if msg.get("reminder_id") and msg.get("medication_id"):
+                    medication_id = msg.get("medication_id")
+                    break
+            
+            # Log medication with duplicate detection
+            response_text = st.session_state.companion_agent.log_medication_tool(
+                user_id=user_id,
+                medication_id=medication_id
+            )
+            st.session_state.chat_history.append({
+                "role": "assistant",
+                "content": response_text,
+                "timestamp": datetime.now(),
+                "quick_actions": []
+            })
+            st.rerun()
         
         elif action == "play_music":
             music_data = st.session_state.companion_agent.handle_play_music()

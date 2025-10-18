@@ -8,7 +8,7 @@ from typing import List, Dict, Any
 
 from app.database.crud import (
     ReminderCRUD, MedicationCRUD, MedicationLogCRUD, 
-    CaregiverAlertCRUD, UserCRUD
+    CaregiverAlertCRUD, UserCRUD, PersonalEventCRUD
 )
 from app.agents.companion_agent import CompanionAgent
 
@@ -33,6 +33,9 @@ class ReminderScheduler:
             
             # Schedule medication reminders
             self.schedule_medication_reminders()
+            
+            # Schedule appointment reminders
+            self.schedule_appointment_reminders()
             
             # Schedule weekly reports
             self.schedule_weekly_reports()
@@ -122,6 +125,74 @@ class ReminderScheduler:
             
         except Exception as e:
             logger.error(f"Failed to schedule medication reminders: {e}")
+    
+    def schedule_appointment_reminders(self):
+        """Schedule reminders for upcoming appointments (1 hour before)"""
+        try:
+            users = UserCRUD.get_all_users()
+            
+            for user in users:
+                # Get appointments in the next 7 days
+                upcoming_events = PersonalEventCRUD.get_upcoming_events(user.id, days=7)
+                appointments = [e for e in upcoming_events if e.event_type == "appointment"]
+                
+                for appointment in appointments:
+                    if not appointment.event_date:
+                        continue
+                    
+                    # Schedule reminder 1 hour before appointment
+                    reminder_time = appointment.event_date - timedelta(hours=1)
+                    
+                    # Only schedule if reminder time is in the future
+                    if reminder_time > datetime.now():
+                        job_id = f'appointment_reminder_{appointment.id}'
+                        
+                        self.scheduler.add_job(
+                            func=self.appointment_reminder,
+                            trigger=DateTrigger(run_date=reminder_time),
+                            args=[user.id, appointment.id],
+                            id=job_id,
+                            name=f'Appointment reminder for {appointment.title}',
+                            replace_existing=True
+                        )
+            
+            logger.info("Appointment reminders scheduled for all users")
+            
+        except Exception as e:
+            logger.error(f"Failed to schedule appointment reminders: {e}")
+    
+    def appointment_reminder(self, user_id: int, appointment_id: int):
+        """Send appointment reminder to specific user"""
+        try:
+            user = UserCRUD.get_user(user_id)
+            events = PersonalEventCRUD.get_user_events(user_id)
+            appointment = next((e for e in events if e.id == appointment_id), None)
+            
+            if not appointment:
+                logger.error(f"Appointment {appointment_id} not found for user {user_id}")
+                return
+            
+            # Create conversational, supportive reminder message
+            time_str = appointment.event_date.strftime('%I:%M %p')
+            reminder_message = f"You have an appointment with {appointment.title} today at {time_str}."
+            
+            if appointment.description:
+                reminder_message += f" {appointment.description}"
+            
+            reminder_message += " Would you like directions or to confirm attendance?"
+            
+            ReminderCRUD.create_reminder(
+                user_id=user_id,
+                reminder_type="appointment",
+                title=f"Upcoming: {appointment.title}",
+                message=reminder_message,
+                scheduled_time=datetime.now()
+            )
+            
+            logger.info(f"Appointment reminder sent for {appointment.title} to user {user_id}")
+            
+        except Exception as e:
+            logger.error(f"Failed to send appointment reminder: {e}")
     
     def schedule_weekly_reports(self):
         """Schedule weekly summary reports"""
@@ -223,9 +294,10 @@ class ReminderScheduler:
                 return
             
             user = UserCRUD.get_user(user_id)
-            user_name = user.name if user else "there"
             
-            reminder_message = f"Hi {user_name}, it's time to take your {medication.name} ({medication.dosage}). {medication.instructions or ''}"
+            # Create conversational, supportive reminder message
+            instruction_text = f" {medication.instructions}" if medication.instructions else ""
+            reminder_message = f"It's time for your {medication.name} {medication.dosage}.{instruction_text} Tap '🕐 Log Medication' once you've taken it."
             
             ReminderCRUD.create_reminder(
                 user_id=user_id,

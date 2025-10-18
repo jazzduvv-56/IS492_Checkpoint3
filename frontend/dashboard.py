@@ -280,13 +280,9 @@ def show_chat_interface(user_id: int):
     # Load recent conversations
     if not st.session_state.chat_history:
         recent_convs = ConversationCRUD.get_user_conversations(user_id, limit=10)
-        st.session_state.chat_history = [
-            {"role": "user", "content": conv.message, "timestamp": conv.timestamp}
-            for conv in reversed(recent_convs)
-        ] + [
-            {"role": "assistant", "content": conv.response, "timestamp": conv.timestamp}
-            for conv in reversed(recent_convs)
-        ]
+        for conv in reversed(recent_convs):
+            st.session_state.chat_history.append({"role": "user", "content": conv.message, "timestamp": conv.timestamp})
+            st.session_state.chat_history.append({"role": "assistant", "content": conv.response, "timestamp": conv.timestamp})
     
     # Chat container
     chat_container = st.container()
@@ -306,7 +302,28 @@ def show_chat_interface(user_id: int):
                     msg_col1, msg_col2 = st.columns([9, 1])
                     
                     with msg_col1:
-                        st.write(message["content"])
+                        content = message["content"]
+                        
+                        # Check if message contains YouTube URL and embed it
+                        if "youtube.com/watch?v=" in content or "youtu.be/" in content:
+                            lines = content.split("\n")
+                            text_lines = []
+                            video_url = None
+                            
+                            for line in lines:
+                                if "youtube.com/watch?v=" in line or "youtu.be/" in line:
+                                    video_url = line.strip()
+                                else:
+                                    text_lines.append(line)
+                            
+                            # Display text first
+                            st.write("\n".join(text_lines))
+                            
+                            # Embed YouTube video
+                            if video_url:
+                                st.video(video_url)
+                        else:
+                            st.write(content)
                     
                     with msg_col2:
                         if st.button("🔊", key=f"listen_{idx}", help="Listen to this message"):
@@ -318,6 +335,82 @@ def show_chat_interface(user_id: int):
                         if audio_bytes:
                             st.audio(audio_bytes, format='audio/mp3', autoplay=True)
                             st.session_state.playing_audio = None
+                    
+                    # Show quick action buttons for the most recent message
+                    if idx == len(st.session_state.chat_history[-10:]) - 1 and message.get("quick_actions"):
+                        st.markdown("---")
+                        st.markdown("**Quick Actions:**")
+                        action_cols = st.columns(len(message["quick_actions"]))
+                        
+                        for i, action in enumerate(message["quick_actions"]):
+                            with action_cols[i]:
+                                if action == "log_medication":
+                                    if st.button("🕐 Log Medication", key=f"action_log_med_{idx}"):
+                                        st.session_state.pending_action = "log_medication"
+                                        st.rerun()
+                                elif action == "play_music":
+                                    if st.button("🎵 Play Music", key=f"action_music_{idx}"):
+                                        st.session_state.pending_action = "play_music"
+                                        st.rerun()
+                                elif action == "fun_corner":
+                                    if st.button("🧩 Fun Corner", key=f"action_fun_{idx}"):
+                                        st.session_state.pending_action = "fun_corner"
+                                        st.rerun()
+                                elif action == "memory_cue":
+                                    if st.button("🧠 Memory Cue", key=f"action_memory_{idx}"):
+                                        st.session_state.pending_action = "memory_cue"
+                                        st.rerun()
+    
+    # Handle quick action button clicks
+    if st.session_state.get("pending_action"):
+        action = st.session_state.pending_action
+        st.session_state.pending_action = None
+        
+        if action == "log_medication":
+            medications = MedicationCRUD.get_user_medications(user_id)
+            if medications:
+                response_text = st.session_state.companion_agent.log_medication_tool(
+                    user_id=user_id,
+                    medication_name=medications[0].name
+                )
+                st.session_state.chat_history.append({
+                    "role": "assistant",
+                    "content": response_text,
+                    "timestamp": datetime.now(),
+                    "quick_actions": []
+                })
+                st.rerun()
+        
+        elif action == "play_music":
+            music_data = st.session_state.companion_agent.handle_play_music()
+            st.session_state.chat_history.append({
+                "role": "assistant",
+                "content": music_data["message"],
+                "timestamp": datetime.now(),
+                "quick_actions": ["fun_corner", "memory_cue"]
+            })
+            st.rerun()
+        
+        elif action == "fun_corner":
+            joke_or_puzzle = st.session_state.companion_agent.handle_fun_corner("joke")
+            message_text = f"Here's a joke for you! 😊\n\n{joke_or_puzzle}"
+            st.session_state.chat_history.append({
+                "role": "assistant",
+                "content": message_text,
+                "timestamp": datetime.now(),
+                "quick_actions": ["play_music", "memory_cue"]
+            })
+            st.rerun()
+        
+        elif action == "memory_cue":
+            memory_question = st.session_state.companion_agent.generate_memory_cue(user_id)
+            st.session_state.chat_history.append({
+                "role": "assistant",
+                "content": memory_question,
+                "timestamp": datetime.now(),
+                "quick_actions": ["fun_corner", "play_music"]
+            })
+            st.rerun()
     
     # Integrated input bar with voice and text
     st.markdown("---")
@@ -375,7 +468,12 @@ def show_chat_interface(user_id: int):
         
         # Update session state
         st.session_state.chat_history.append({"role": "user", "content": display_message, "timestamp": datetime.now()})
-        st.session_state.chat_history.append({"role": "assistant", "content": response_data["response"], "timestamp": datetime.now()})
+        st.session_state.chat_history.append({
+            "role": "assistant",
+            "content": response_data["response"],
+            "timestamp": datetime.now(),
+            "quick_actions": response_data.get("quick_actions", [])
+        })
         
         # Check for emergency
         if response_data.get("is_emergency") and not st.session_state.get("emergency_handled"):

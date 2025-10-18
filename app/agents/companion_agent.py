@@ -19,7 +19,7 @@ class CompanionAgent:
         # System prompt for elderly care companion
         self.system_prompt = """You are Carely, a warm, empathetic AI companion designed specifically for elderly care. Your role is to:
 
-1. PERSONALITY: Be gentle, patient, understanding, and warm. Use a conversational tone that feels like talking to a caring friend or family member.
+1. PERSONALITY: Be gentle, patient, understanding, and warm. Use a conversational tone that feels like talking to a caring friend or family member. NEVER sound robotic or overly formal.
 
 2. COMMUNICATION STYLE:
    - Keep responses clear and not too long
@@ -27,6 +27,7 @@ class CompanionAgent:
    - Show genuine interest in their wellbeing
    - Remember and reference past conversations when appropriate
    - Be encouraging and supportive
+   - Sound empathetic, natural, and reassuring
 
 3. CORE RESPONSIBILITIES:
    - Help with medication reminders and tracking
@@ -34,13 +35,15 @@ class CompanionAgent:
    - Provide emotional support and companionship
    - Alert caregivers when concerning patterns emerge
    - Remember personal details and preferences
+   - Offer music, jokes, puzzles, and memory exercises for engagement
 
 4. SAFETY: If you detect signs of medical emergency, severe depression, or immediate danger, recommend contacting emergency services or their caregiver immediately.
 
-5. TOOLS AVAILABLE:
-   - log_medication: Record when medications are taken
-   - check_schedule: View upcoming medications and reminders
-   - alert_caregiver: Send alerts to designated caregivers for concerning patterns
+5. INTERACTIVE FEATURES:
+   - Log Medication: Help users confirm medication taken
+   - Play Music: Share relaxing or cheerful songs
+   - Fun Corner: Offer jokes or light brain puzzles
+   - Memory Cue: Engage in gentle memory recall exercises
 
 Always respond with empathy and care, as if you're genuinely concerned about their wellbeing."""
 
@@ -141,6 +144,117 @@ Always respond with empathy and care, as if you're genuinely concerned about the
 
         except Exception as e:
             return "I had trouble sending the alert. Please contact your caregiver directly if this is urgent."
+
+    def determine_quick_actions(self, user_message: str, user_id: int) -> List[str]:
+        """Determine 2-3 relevant quick action buttons based on context"""
+        message_lower = user_message.lower()
+        actions = []
+        
+        # Medication-related keywords
+        med_keywords = ["medication", "med", "pill", "medicine", "take", "took", "dose"]
+        if any(keyword in message_lower for keyword in med_keywords):
+            actions.append("log_medication")
+        
+        # Boredom or entertainment keywords
+        bored_keywords = ["bored", "lonely", "nothing to do", "entertain", "fun"]
+        if any(keyword in message_lower for keyword in bored_keywords):
+            actions.extend(["play_music", "fun_corner"])
+        
+        # Music keywords
+        music_keywords = ["music", "song", "relax", "calming", "peaceful"]
+        if any(keyword in message_lower for keyword in music_keywords):
+            if "play_music" not in actions:
+                actions.append("play_music")
+        
+        # Default fallback: add variety if no specific context
+        if not actions:
+            medications = MedicationCRUD.get_user_medications(user_id)
+            if medications:
+                actions.append("log_medication")
+            actions.append("play_music")
+        
+        # Always consider memory cue as a gentle engagement option
+        if len(actions) < 3 and "memory_cue" not in actions:
+            actions.append("memory_cue")
+        
+        # If still need more, add fun corner
+        if len(actions) < 3 and "fun_corner" not in actions:
+            actions.append("fun_corner")
+        
+        return actions[:3]
+    
+    def handle_play_music(self) -> Dict[str, Any]:
+        """Return a relaxing music recommendation"""
+        music_options = [
+            {"title": "Peaceful Piano Music", "url": "https://www.youtube.com/watch?v=7emS3ye3cIY"},
+            {"title": "Calming Nature Sounds", "url": "https://www.youtube.com/watch?v=eKFTSSKCzWA"},
+            {"title": "Gentle Classical Music", "url": "https://www.youtube.com/watch?v=jgpJVI3tDbY"},
+            {"title": "Relaxing Guitar Music", "url": "https://www.youtube.com/watch?v=4bMr6vKXnkw"},
+        ]
+        
+        import random
+        selected = random.choice(music_options)
+        
+        return {
+            "message": f"Here's something relaxing 🎵\n\n🎶 {selected['title']}\n{selected['url']}",
+            "music_url": selected['url'],
+            "music_title": selected['title']
+        }
+    
+    def handle_fun_corner(self, corner_type: str = "joke") -> str:
+        """Return either a joke or puzzle"""
+        import random
+        
+        if corner_type == "joke":
+            jokes = [
+                "Why don't scientists trust atoms? Because they make up everything!",
+                "What do you call a fish wearing a bowtie? So-fish-ticated!",
+                "Why did the scarecrow win an award? He was outstanding in his field!",
+                "What do you call a bear with no teeth? A gummy bear!"
+            ]
+            return random.choice(jokes)
+        else:
+            puzzles = [
+                "What has keys but no locks, space but no room, and you can enter but can't go in? (Answer: A keyboard)",
+                "I have cities but no houses, forests but no trees, and water but no fish. What am I? (Answer: A map)",
+                "What gets wet while drying? (Answer: A towel)",
+                "What can you catch but not throw? (Answer: A cold)"
+            ]
+            return random.choice(puzzles)
+    
+    def generate_memory_cue(self, user_id: int) -> str:
+        """Generate a gentle memory recall question from personal data"""
+        user = UserCRUD.get_user(user_id)
+        personal_events = PersonalEventCRUD.get_user_events(user_id, limit=10)
+        medications = MedicationCRUD.get_user_medications(user_id)
+        
+        questions = []
+        
+        # Questions about medications
+        if medications:
+            med_names = [med.name for med in medications[:3]]
+            questions.extend([
+                f"Do you remember what medication you take in the morning?",
+                f"Can you tell me the name of your heart medication?",
+            ])
+        
+        # Questions about personal events
+        if personal_events:
+            for event in personal_events[:2]:
+                if event.event_type == "family":
+                    questions.append(f"Do you remember {event.title}?")
+                elif event.event_type == "birthday":
+                    questions.append(f"Can you tell me when {event.title} is?")
+        
+        # General questions
+        questions.extend([
+            "What did you have for breakfast this morning?",
+            "Can you tell me what day of the week it is today?",
+            "Do you remember what we talked about earlier today?"
+        ])
+        
+        import random
+        return random.choice(questions) if questions else "What's your favorite memory from this week?"
 
     def should_alert_caregiver(self, user_id: int, sentiment_score: float,
                                message: str) -> bool:
@@ -253,6 +367,9 @@ Respond naturally and warmly."""
                     severity="medium" if sentiment_score > -0.8 else "high")
                 alert_sent = True
 
+            # Determine quick action buttons (2-3 relevant buttons)
+            quick_actions = self.determine_quick_actions(user_message, user_id)
+            
             return {
                 "response": ai_response,
                 "sentiment_score": sentiment_score,
@@ -262,7 +379,8 @@ Respond naturally and warmly."""
                 "is_emergency": is_emergency,
                 "emergency_severity": emergency_severity,
                 "emergency_concerns": emergency_concerns,
-                "should_alert": should_alert
+                "should_alert": should_alert,
+                "quick_actions": quick_actions
             }
 
         except Exception as e:

@@ -278,6 +278,99 @@ Always respond with empathy and care, as if you're genuinely concerned about the
         import random
         return random.choice(questions) if questions else "What's your favorite memory from this week?"
 
+    def _local_sentiment_analysis(self, text: str) -> Dict[str, Any]:
+        """Local keyword-based sentiment analysis (no API call)"""
+        text_lower = text.lower()
+        
+        positive_words = ["good", "great", "happy", "wonderful", "excellent", "love", "enjoy",
+                         "better", "fine", "well", "nice", "pleasant", "comfortable", "peaceful"]
+        
+        negative_words = ["bad", "terrible", "awful", "hate", "horrible", "pain", "hurt", "sad",
+                         "worried", "anxious", "confused", "lost", "dizzy", "sick", "tired",
+                         "lonely", "scared", "frightened", "depressed", "upset"]
+        
+        concern_words = ["pain", "hurt", "dizzy", "fall", "emergency", "help", "confused",
+                        "memory", "forgot", "lost", "scared", "can't", "unable", "difficult"]
+        
+        positive_count = sum(1 for word in positive_words if word in text_lower)
+        negative_count = sum(1 for word in negative_words if word in text_lower)
+        concern_count = sum(1 for word in concern_words if word in text_lower)
+        
+        total_words = len(text_lower.split())
+        if total_words == 0:
+            return {"score": 0, "label": "neutral", "confidence": 0.6, "emotions": []}
+        
+        score = (positive_count - negative_count - (concern_count * 1.5)) / total_words
+        score = max(-1, min(1, score))
+        
+        if score > 0.1:
+            label = "positive"
+        elif score < -0.1:
+            label = "negative"
+        else:
+            label = "neutral"
+        
+        emotions = []
+        if concern_count > 0:
+            emotions.append("concern")
+        if any(word in text_lower for word in ["pain", "hurt", "sick"]):
+            emotions.append("discomfort")
+        if any(word in text_lower for word in ["lonely", "alone", "miss"]):
+            emotions.append("loneliness")
+        if any(word in text_lower for word in ["happy", "good", "great"]):
+            emotions.append("contentment")
+        
+        return {"score": score, "label": label, "confidence": 0.6, "emotions": emotions}
+    
+    def _local_emergency_detection(self, message: str, user_id: int) -> Dict[str, Any]:
+        """Local keyword-based emergency detection (no API call)"""
+        message_lower = message.lower()
+        
+        # Critical emergency keywords
+        critical_keywords = ["chest pain", "can't breathe", "cannot breathe", "heart attack", 
+                            "stroke", "fell", "bleeding", "unconscious", "dizzy", "fainted"]
+        
+        # High severity keywords
+        high_keywords = ["pain", "hurt", "emergency", "help me", "fallen", "can't move",
+                        "difficulty breathing", "severe", "blood"]
+        
+        # Medium severity keywords
+        medium_keywords = ["dizzy", "confused", "nausea", "headache", "weak", "tired", 
+                          "worried", "scared", "anxious"]
+        
+        is_critical = any(keyword in message_lower for keyword in critical_keywords)
+        is_high = any(keyword in message_lower for keyword in high_keywords)
+        is_medium = any(keyword in message_lower for keyword in medium_keywords)
+        
+        if is_critical:
+            return {
+                "is_emergency": True,
+                "severity": "critical",
+                "concerns": ["Possible medical emergency detected"],
+                "should_alert": True
+            }
+        elif is_high:
+            return {
+                "is_emergency": True,
+                "severity": "high",
+                "concerns": ["Concerning symptoms reported"],
+                "should_alert": True
+            }
+        elif is_medium:
+            return {
+                "is_emergency": False,
+                "severity": "medium",
+                "concerns": ["Minor health concern mentioned"],
+                "should_alert": False
+            }
+        
+        return {
+            "is_emergency": False,
+            "severity": "none",
+            "concerns": [],
+            "should_alert": False
+        }
+
     def should_alert_caregiver(self, user_id: int, sentiment_score: float,
                                message: str) -> bool:
         """Determine if caregiver should be alerted based on conversation"""
@@ -338,13 +431,13 @@ Always respond with empathy and care, as if you're genuinely concerned about the
             user = UserCRUD.get_user(user_id)
             user_name = user.name if user else "there"
 
-            # Analyze sentiment of user message
-            sentiment_result = analyze_sentiment(user_message)
+            # Use local fallback sentiment analysis (no API call)
+            sentiment_result = self._local_sentiment_analysis(user_message)
             sentiment_score = sentiment_result.get("score", 0)
             sentiment_label = sentiment_result.get("label", "neutral")
             
-            # Detect emergency situations with user_id for debounce tracking
-            emergency_result = detect_emergency(user_message, user_id)
+            # Use local keyword-based emergency detection (no API call)
+            emergency_result = self._local_emergency_detection(user_message, user_id)
             is_emergency = emergency_result.get("is_emergency", False)
             emergency_severity = emergency_result.get("severity", "manageable")
             emergency_concerns = emergency_result.get("concerns", [])
@@ -439,8 +532,12 @@ Respond naturally and warmly based on ALL the context provided."""
             }
 
         except Exception as e:
-            # Fallback response
-            error_response = f"I'm sorry, I'm having a bit of trouble right now. But I'm here for you! Is there anything specific you'd like to talk about or any way I can help you today?"
+            # Check if it's a rate limit error
+            error_str = str(e)
+            if "429" in error_str or "rate" in error_str.lower():
+                error_response = "I'm getting a lot of requests right now and need a moment to catch my breath! Please wait just a minute and try again. I'm still here for you!"
+            else:
+                error_response = f"I'm sorry, I'm having a bit of trouble right now. But I'm here for you! Is there anything specific you'd like to talk about or any way I can help you today?"
 
             # Still save the conversation attempt
             ConversationCRUD.save_conversation(

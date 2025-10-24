@@ -130,13 +130,13 @@ def show_overview(user_id: int):
         reminders = ReminderCRUD.get_pending_reminders(user_id)
         today_reminders = [
             r for r in reminders 
-            if r.scheduled_time.date() == datetime.now().date()
+            if r.scheduled_time.date() == now_central().date()
         ]
         
         if today_reminders:
             for reminder in today_reminders[:5]:
                 with st.container():
-                    st.write(f"**{format_time_central(reminder.scheduled_time, "%I:%M %p")}** - {reminder.title}")
+                    st.write(f"**{format_time_central(reminder.scheduled_time, '%I:%M %p')}** - {reminder.title}")
                     st.write(f"_{reminder.message}_")
                     st.divider()
         else:
@@ -154,7 +154,7 @@ def show_overview(user_id: int):
                     sentiment_color = get_sentiment_color(conv.sentiment_score or 0)
                     sentiment_emoji = get_sentiment_emoji(conv.sentiment_score or 0)
                     
-                    st.write(f"**{format_time_central(conv.timestamp, "%I:%M %p")}** {sentiment_emoji}")
+                    st.write(f"**{format_time_central(conv.timestamp, '%I:%M %p')}** {sentiment_emoji}")
                     st.write(f"You: {conv.message}")
                     st.write(f"Carely: {conv.response}")
                     st.divider()
@@ -191,7 +191,7 @@ def show_overview(user_id: int):
                 MedicationLogCRUD.log_medication_taken(
                     user_id=user_id,
                     medication_id=med_options[selected_med],
-                    scheduled_time=datetime.now(),
+                    scheduled_time=now_central(),
                     status="taken",
                     notes=notes or None
                 )
@@ -418,7 +418,7 @@ def show_chat_interface(user_id: int):
             st.session_state.chat_history.append({
                 "role": "assistant",
                 "content": response_text,
-                "timestamp": datetime.now(),
+                "timestamp": now_central(),
                 "quick_actions": []
             })
             st.rerun()
@@ -428,7 +428,7 @@ def show_chat_interface(user_id: int):
             st.session_state.chat_history.append({
                 "role": "assistant",
                 "content": music_data["message"],
-                "timestamp": datetime.now(),
+                "timestamp": now_central(),
                 "quick_actions": ["fun_corner", "memory_cue"]
             })
             st.rerun()
@@ -439,7 +439,7 @@ def show_chat_interface(user_id: int):
             st.session_state.chat_history.append({
                 "role": "assistant",
                 "content": message_text,
-                "timestamp": datetime.now(),
+                "timestamp": now_central(),
                 "quick_actions": ["play_music", "memory_cue"]
             })
             st.rerun()
@@ -449,7 +449,7 @@ def show_chat_interface(user_id: int):
             st.session_state.chat_history.append({
                 "role": "assistant",
                 "content": memory_question,
-                "timestamp": datetime.now(),
+                "timestamp": now_central(),
                 "quick_actions": ["fun_corner", "play_music"]
             })
             st.rerun()
@@ -509,11 +509,11 @@ def show_chat_interface(user_id: int):
                 st.caption(f"Detected mood: {sentiment_emoji} {response_data['sentiment_label']}")
         
         # Update session state
-        st.session_state.chat_history.append({"role": "user", "content": display_message, "timestamp": datetime.now()})
+        st.session_state.chat_history.append({"role": "user", "content": display_message, "timestamp": now_central()})
         st.session_state.chat_history.append({
             "role": "assistant",
             "content": response_data["response"],
-            "timestamp": datetime.now(),
+            "timestamp": now_central(),
             "quick_actions": response_data.get("quick_actions", [])
         })
         
@@ -555,8 +555,8 @@ def show_chat_interface(user_id: int):
                     conversation_type="medication"
                 )
                 
-                st.session_state.chat_history.append({"role": "user", "content": quick_prompt, "timestamp": datetime.now()})
-                st.session_state.chat_history.append({"role": "assistant", "content": response_data["response"], "timestamp": datetime.now()})
+                st.session_state.chat_history.append({"role": "user", "content": quick_prompt, "timestamp": now_central()})
+                st.session_state.chat_history.append({"role": "assistant", "content": response_data["response"], "timestamp": now_central()})
                 st.rerun()
     
     # Mood analysis
@@ -625,14 +625,14 @@ def show_medication_management(user_id: int):
                         st.write("**Recent Activity:**")
                         for log in med_logs[-3:]:  # Last 3 logs
                             status_emoji = "✅" if log.status == "taken" else "❌" if log.status == "missed" else "⏸️"
-                            st.write(f"{status_emoji} {format_time_central(log.scheduled_time, "%m/%d %I:%M %p")} - {log.status}")
+                            st.write(f"{status_emoji} {format_time_central(log.scheduled_time, '%m/%d %I:%M %p')} - {log.status}")
                     
                     # Quick log button
                     if st.button(f"Log {med.name} as Taken", key=f"log_{med.id}"):
                         MedicationLogCRUD.log_medication_taken(
                             user_id=user_id,
                             medication_id=med.id,
-                            scheduled_time=datetime.now(),
+                            scheduled_time=now_central(),
                             status="taken"
                         )
                         st.success(f"{med.name} logged as taken!")
@@ -852,7 +852,7 @@ def show_health_insights(user_id: int):
         df_med = pd.DataFrame([
             {
                 "date": log.scheduled_time.date(),
-                "day_of_week": format_time_central(log.scheduled_time, "%A"),
+                "day_of_week": format_time_central(log.scheduled_time, '%A'),
                 "status": log.status,
                 "hour": log.scheduled_time.hour
             }
@@ -979,7 +979,7 @@ def show_alerts_and_reminders(user_id: int):
                         st.info(f"🟢 **{alert.title}**")
                     
                     st.write(alert.description)
-                    st.caption(f"Created: {format_time_central(alert.created_at, "%m/%d/%Y %I:%M %p")} | Type: {alert.alert_type}")
+                    st.caption(f"Created: {format_time_central(alert.created_at, '%m/%d/%Y %I:%M %p')} | Type: {alert.alert_type}")
                     
                     col1, col2 = st.columns([1, 1])
                     with col1:
@@ -1029,7 +1029,7 @@ def show_user_management():
                     st.write(f"**Emergency Contact:** {user.emergency_contact or 'Not provided'}")
                 
                 with col2:
-                    st.write(f"**Created:** {format_time_central(user.created_at, "%m/%d/%Y")}")
+                    st.write(f"**Created:** {format_time_central(user.created_at, '%m/%d/%Y')}")
                     if user.preferences:
                         try:
                             prefs = json.loads(user.preferences)
@@ -1043,7 +1043,7 @@ def show_user_management():
                     conversations = ConversationCRUD.get_user_conversations(user.id, limit=1)
                     medications = MedicationCRUD.get_user_medications(user.id)
                     st.write(f"**Medications:** {len(medications)}")
-                    st.write(f"**Last Chat:** {format_time_central(conversations[0].timestamp, "%m/%d/%Y") if conversations else 'Never'}")
+                    st.write(f"**Last Chat:** {format_time_central(conversations[0].timestamp, '%m/%d/%Y') if conversations else 'Never'}")
     
     st.divider()
     
@@ -1115,7 +1115,7 @@ def show_user_management():
             active_users = 0
             for user in users:
                 conversations = ConversationCRUD.get_user_conversations(user.id, limit=1)
-                if conversations and (datetime.now() - conversations[0].timestamp).days <= 7:
+                if conversations and (now_central() - conversations[0].timestamp).days <= 7:
                     active_users += 1
             st.metric("Active Users (7d)", active_users)
         

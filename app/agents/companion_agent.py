@@ -516,15 +516,21 @@ Be gentle, patient, and use simple everyday language. Never use medical jargon."
             if is_memory_query:
                 memory_response = self.memory_manager.recall_information(user_id, user_message)
                 if memory_response and len(memory_response) > 20:
-                    # Save this interaction to memory
-                    self.memory_manager.add_conversation(user_id, user_message, memory_response)
-                    
-                    # Save to database
-                    ConversationCRUD.save_conversation(
+                    # Save to database first
+                    conversation = ConversationCRUD.save_conversation(
                         user_id=user_id,
                         message=user_message,
                         response=memory_response,
                         conversation_type="memory_query"
+                    )
+                    
+                    # Add to vector store incrementally
+                    self.memory_manager.add_conversation(
+                        user_id=user_id,
+                        conversation_id=conversation.id,
+                        user_message=user_message,
+                        assistant_response=memory_response,
+                        timestamp=conversation.timestamp
                     )
                     
                     return {
@@ -612,9 +618,10 @@ Respond naturally and warmly based on ALL the context provided."""
                 sentiment_label=sentiment_label,
                 conversation_type=conversation_type)
             
-            # Add conversation to memory system
+            # Add conversation to vector store incrementally
             self.memory_manager.add_conversation(
                 user_id=user_id,
+                conversation_id=conversation.id,
                 user_message=user_message,
                 assistant_response=ai_response,
                 timestamp=conversation.timestamp

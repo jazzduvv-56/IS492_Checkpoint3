@@ -5,6 +5,8 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta, time
 import json
 import os
+import requests
+import time as time_module
 from typing import List, Dict, Any
 from streamlit_mic_recorder import speech_to_text
 
@@ -119,6 +121,112 @@ def show_overview(user_id: int):
         alerts = CaregiverAlertCRUD.get_unresolved_alerts(user_id)
         alert_count = len(alerts)
         st.metric("🚨 Active Alerts", alert_count)
+
+    st.divider()
+
+    # Today's High-Importance Events Panel
+    st.subheader("🔔 Today's High-Importance Events")
+    
+    # Create placeholder for events
+    events_container = st.empty()
+    
+    # Fetch events from API
+    try:
+        # Use environment-based API URL or default to localhost
+        api_base = os.getenv("API_BASE_URL", "http://localhost:8000")
+        response = requests.get(
+            f"{api_base}/events/high_importance_today",
+            params={"user_id": user_id},
+            timeout=5
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            events = data.get("events", [])
+            
+            if events:
+                with events_container.container():
+                    for event in events:
+                        with st.container():
+                            col_time, col_info = st.columns([1, 3])
+                            
+                            with col_time:
+                                st.write(f"**{event['event_time_local']}**")
+                            
+                            with col_info:
+                                # Add event type emoji
+                                type_emoji = {
+                                    "appointment": "📅",
+                                    "medication": "💊",
+                                    "birthday": "🎂",
+                                    "family_event": "👨‍👩‍👧‍👦",
+                                    "hobby": "🎨",
+                                    "achievement": "🏆"
+                                }.get(event.get("event_type", ""), "📌")
+                                
+                                st.write(f"{type_emoji} **{event['title']}**")
+                                
+                                # Show description if available (truncate if too long)
+                                if event.get("description"):
+                                    desc = event["description"]
+                                    if len(desc) > 80:
+                                        desc = desc[:77] + "..."
+                                    st.write(f"_{desc}_")
+                                
+                                # Show recurring badge
+                                if event.get("recurring"):
+                                    st.caption("🔁 Recurring")
+                            
+                            st.divider()
+            else:
+                events_container.success("✅ No high-importance events left today.")
+        else:
+            events_container.warning("Unable to load today's events.")
+    
+    except requests.RequestException:
+        # Fallback to direct CRUD if API is unavailable
+        from app.database.crud import PersonalEventCRUD
+        try:
+            events = PersonalEventCRUD.high_importance_today(user_id)
+            
+            if events:
+                with events_container.container():
+                    for event in events:
+                        with st.container():
+                            col_time, col_info = st.columns([1, 3])
+                            
+                            with col_time:
+                                st.write(f"**{event['event_time_local']}**")
+                            
+                            with col_info:
+                                type_emoji = {
+                                    "appointment": "📅",
+                                    "medication": "💊",
+                                    "birthday": "🎂",
+                                    "family_event": "👨‍👩‍👧‍👦",
+                                    "hobby": "🎨",
+                                    "achievement": "🏆"
+                                }.get(event.get("event_type", ""), "📌")
+                                
+                                st.write(f"{type_emoji} **{event['title']}**")
+                                
+                                if event.get("description"):
+                                    desc = event["description"]
+                                    if len(desc) > 80:
+                                        desc = desc[:77] + "..."
+                                    st.write(f"_{desc}_")
+                                
+                                if event.get("recurring"):
+                                    st.caption("🔁 Recurring")
+                            
+                            st.divider()
+            else:
+                events_container.success("✅ No high-importance events left today.")
+        except Exception as e:
+            events_container.error(f"Error loading events: {str(e)}")
+    
+    except Exception as e:
+        events_container.error(f"Error loading events: {str(e)}")
 
     st.divider()
 

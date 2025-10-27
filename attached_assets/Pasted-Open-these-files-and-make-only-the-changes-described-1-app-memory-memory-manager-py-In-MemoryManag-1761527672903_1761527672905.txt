@@ -1,0 +1,27 @@
+Open these files and make only the changes described:
+1) app/memory/memory_manager.py
+In MemoryManager.recall_information(user_id, query):
+In the meal branch (keywords: breakfast/lunch/dinner/meal/eat), do not return “Today you mentioned …” from daily logs.
+First: attempt a structured lookup for the user’s configured meal time (e.g., lunch time) via StructuredMemory (see step 2).
+If found, return a single concise sentence with that time.
+If not found, return one brief clarifying question offering to save a preferred time.
+Ensure this function never returns duplicates or echoes the current user query.
+Add a safe fallback return at the end of the function if no branch matches (one concise sentence).
+2) app/memory/structured_memory.py
+Add or refine a method used by step 1 to fetch configured meal times (e.g., get_meal_time(user_id, meal_name) or equivalent using existing preferences/events).
+In the existing daily logs accessor (e.g., get_daily_logs), add parameters/logic to:
+Exclude the current user message from aggregation.
+Deduplicate topics before returning.
+Cap any “today topics” output to a small number (e.g., top 3).
+This method should be used only when the user explicitly asks for a daily summary, not for meal-time questions.
+3) (Hygiene) app/memory/long_term_memory.py
+In any retrieval used by recall_information, skip results whose user_message is identical or highly similar to the current query, to avoid parroting.
+Constraints
+Keep behavior changes scoped to the files above.
+Do not alter unrelated DB schemas or scheduling code.
+Maintain concise responses (≤1 short sentence for successful meal-time answers; one clarifying question if unknown).
+Acceptance criteria
+Asking “what time is lunch?” (or similar) returns the configured lunch time from structured data; if none exists, it asks once to set a preferred time.
+Repeating the question no longer produces “Today you mentioned: lunch, lunch, lunch”.
+“Today you mentioned …” is shown only when explicitly requested and is deduped, excludes the current turn, and is capped to a few items.
+Long-term recall never echoes the current user message.

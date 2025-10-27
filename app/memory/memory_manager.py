@@ -103,21 +103,40 @@ class MemoryManager:
             return self.structured.get_medication_schedule(user_id)
         
         elif any(word in query_lower for word in ['breakfast', 'lunch', 'dinner', 'meal', 'eat']):
-            logs = self.structured.get_daily_logs(user_id)
-            if logs["meals"]:
-                return f"Today you mentioned: {', '.join(logs['meals'])}"
-            else:
-                # Search in past conversations
-                similar = self.long_term.retrieve_similar_conversations(query, user_id, top_k=3)
-                if similar:
-                    for conv in similar:
-                        if any(meal in conv['user_message'].lower() for meal in ['breakfast', 'lunch', 'dinner']):
-                            return f"I remember you mentioned: {conv['user_message']}"
-                return "I don't have a specific record. Can you tell me more?"
+            # First, check if asking about meal TIME (e.g., "what time is lunch?")
+            is_time_query = any(phrase in query_lower for phrase in ['what time', 'when is', 'time for'])
+            
+            if is_time_query:
+                # Determine which meal they're asking about
+                meal_name = None
+                if 'breakfast' in query_lower:
+                    meal_name = 'breakfast'
+                elif 'lunch' in query_lower:
+                    meal_name = 'lunch'
+                elif 'dinner' in query_lower:
+                    meal_name = 'dinner'
+                
+                if meal_name:
+                    # Look up configured meal time
+                    meal_time = self.structured.get_meal_time(user_id, meal_name)
+                    if meal_time:
+                        return f"Your {meal_name} is usually at {meal_time}."
+                    else:
+                        return f"I don't have a time set for {meal_name}. What time do you usually have it?"
+            
+            # Otherwise, asking about today's meals - use daily summary only when explicitly requested
+            # Do NOT return "Today you mentioned..." for simple meal time queries
+            if any(word in query_lower for word in ['today', 'summary', 'what did i']):
+                logs = self.structured.get_daily_logs(user_id, exclude_message=query, max_topics=3)
+                if logs["meals"]:
+                    return f"Today you mentioned: {', '.join(logs['meals'])}"
+            
+            # If not a time query or summary request, fall through to general recall
+            return "I can help you track meals or set meal times. What would you like to know?"
         
         elif any(word in query_lower for word in ['remember', 'talked about', 'discussed', 'said']):
             # Recall from long-term memory
-            similar = self.long_term.retrieve_similar_conversations(query, user_id, top_k=3)
+            similar = self.long_term.retrieve_similar_conversations(query, user_id, top_k=3, exclude_query=query)
             if similar:
                 response = "Yes, I remember we talked about:\n"
                 for conv in similar[:2]:
@@ -139,7 +158,11 @@ class MemoryManager:
         
         else:
             # General recall from structured memory
-            return self.structured.recall_specific_info(user_id, query)
+            result = self.structured.recall_specific_info(user_id, query, exclude_message=query)
+            if result:
+                return result
+            # Fallback if nothing matches
+            return "I'm here to help. Could you tell me more about what you're looking for?"
     
     def generate_daily_summary(self, user_id: int):
         """

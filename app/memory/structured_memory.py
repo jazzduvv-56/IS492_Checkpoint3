@@ -85,13 +85,38 @@ class StructuredMemory:
         return preferences
     
     @staticmethod
-    def get_daily_logs(user_id: int, date: datetime = None) -> Dict:
+    def get_meal_time(user_id: int, meal_name: str) -> Optional[str]:
+        """
+        Get configured time for a specific meal from user preferences
+        
+        Args:
+            user_id: User ID
+            meal_name: Meal name (breakfast, lunch, dinner)
+        
+        Returns:
+            Meal time string or None if not configured
+        """
+        user = UserCRUD.get_user(user_id)
+        if not user or not user.preferences:
+            return None
+        
+        try:
+            prefs = json.loads(user.preferences)
+            meal_times = prefs.get("meal_times", {})
+            return meal_times.get(meal_name.lower())
+        except:
+            return None
+    
+    @staticmethod
+    def get_daily_logs(user_id: int, date: datetime = None, exclude_message: str = None, max_topics: int = 3) -> Dict:
         """
         Get daily activity logs (meals, medications, conversations)
         
         Args:
             user_id: User ID
             date: Date to retrieve (defaults to today)
+            exclude_message: Message to exclude from aggregation (typically current user message)
+            max_topics: Maximum number of topics to return (default 3)
         
         Returns:
             Dictionary with daily logs
@@ -114,6 +139,8 @@ class StructuredMemory:
             "conversations_count": 0
         }
         
+        exclude_lower = exclude_message.lower() if exclude_message else ""
+        
         with get_session() as session:
             # Get conversations
             conv_query = select(Conversation).where(
@@ -126,6 +153,10 @@ class StructuredMemory:
             
             # Extract meals and activities from conversations
             for conv in conversations:
+                # Skip if this is the current user message
+                if exclude_message and conv.message.lower().strip() == exclude_lower.strip():
+                    continue
+                
                 text = (conv.message + " " + conv.response).lower()
                 
                 # Look for meal mentions
@@ -139,6 +170,15 @@ class StructuredMemory:
                 # Look for activity mentions
                 if any(word in text for word in ["walk", "exercise", "activity"]):
                     logs["activities"].append(conv.message)
+            
+            # Deduplicate meals while preserving order
+            seen_meals = set()
+            deduped_meals = []
+            for meal in logs["meals"]:
+                if meal not in seen_meals:
+                    seen_meals.add(meal)
+                    deduped_meals.append(meal)
+            logs["meals"] = deduped_meals[:max_topics]
             
             # Get medication logs
             med_query = select(MedicationLog).where(
@@ -165,7 +205,7 @@ class StructuredMemory:
         return logs
     
     @staticmethod
-    def recall_specific_info(user_id: int, query_type: str, date: datetime = None) -> str:
+    def recall_specific_info(user_id: int, query_type: str, date: datetime = None, exclude_message: str = None) -> str:
         """
         Recall specific information based on query type
         
@@ -173,24 +213,25 @@ class StructuredMemory:
             user_id: User ID
             query_type: Type of query ('breakfast', 'medications', 'schedule', etc.)
             date: Date to query (defaults to today)
+            exclude_message: Current message to exclude from aggregation
         
         Returns:
             Relevant information as string
         """
-        query_type = query_type.lower()
+        query_type_lower = query_type.lower()
         
-        if "medication" in query_type or "schedule" in query_type:
+        if "medication" in query_type_lower or "schedule" in query_type_lower:
             return StructuredMemory.get_medication_schedule(user_id)
         
-        elif any(meal in query_type for meal in ['breakfast', 'lunch', 'dinner', 'meal']):
-            logs = StructuredMemory.get_daily_logs(user_id, date)
+        elif any(meal in query_type_lower for meal in ['breakfast', 'lunch', 'dinner', 'meal']):
+            logs = StructuredMemory.get_daily_logs(user_id, date, exclude_message=exclude_message, max_topics=3)
             if logs["meals"]:
                 meals_str = ", ".join(logs["meals"])
                 return f"Today you mentioned having: {meals_str}"
             else:
                 return "I don't have any record of meals today. What did you eat?"
         
-        elif "event" in query_type or "appointment" in query_type:
+        elif "event" in query_type_lower or "appointment" in query_type_lower:
             events = PersonalEventCRUD.get_upcoming_events(user_id, days=30)
             if events:
                 event_list = "\n".join([f"• {e.title} on {e.event_date.strftime('%B %d, %Y')}" for e in events[:5]])

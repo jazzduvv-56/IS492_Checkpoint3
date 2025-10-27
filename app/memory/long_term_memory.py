@@ -72,7 +72,7 @@ class LongTermMemory:
             self._save_memory()
     
     def retrieve_similar_conversations(self, query: str, user_id: int, 
-                                      top_k: int = 3) -> List[Dict]:
+                                      top_k: int = 3, exclude_query: str = None) -> List[Dict]:
         """
         Retrieve semantically similar past conversations
         
@@ -80,6 +80,7 @@ class LongTermMemory:
             query: User's current query
             user_id: User ID
             top_k: Number of similar conversations to retrieve
+            exclude_query: Query text to exclude from results (avoids echoing current message)
         
         Returns:
             List of similar conversation dictionaries
@@ -99,18 +100,32 @@ class LongTermMemory:
             similarities = cosine_similarity(query_vector, self.conversation_vectors)[0]
             
             # Get top-k similar conversations
-            top_indices = np.argsort(similarities)[-top_k:][::-1]
+            top_indices = np.argsort(similarities)[-top_k * 2:][::-1]  # Get more candidates for filtering
             
             # Retrieve full conversation details
             similar_conversations = []
             all_convs = ConversationCRUD.get_user_conversations(user_id, limit=100)
             conv_dict = {conv.id: conv for conv in all_convs}
             
+            exclude_lower = exclude_query.lower().strip() if exclude_query else ""
+            
             for idx in top_indices:
+                if len(similar_conversations) >= top_k:
+                    break
+                    
                 if similarities[idx] > 0.1:  # Minimum similarity threshold
                     conv_id = self.conversation_ids[idx]
                     if conv_id in conv_dict:
                         conv = conv_dict[conv_id]
+                        
+                        # Skip if this is the current query (avoid echoing)
+                        if exclude_query and conv.message.lower().strip() == exclude_lower:
+                            continue
+                        
+                        # Skip if message is too similar to current query (>95% similar)
+                        if exclude_query and similarities[idx] > 0.95:
+                            continue
+                        
                         similar_conversations.append({
                             "id": conv.id,
                             "user_message": conv.message,

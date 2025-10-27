@@ -18,27 +18,38 @@ class MemoryManager:
     
     def __init__(self):
         """Initialize all memory layers"""
-        self.short_term = ShortTermMemory(max_size=15)
-        self.long_term = LongTermMemory()
+        self.short_term = ShortTermMemory(max_size=10)  # DB-based, fetches last 10
+        self.long_term = LongTermMemory()  # ChromaDB-based embeddings
         self.episodic = EpisodicMemory()
         self.structured = StructuredMemory()
     
-    def add_conversation(self, user_id: int, user_message: str, 
+    def add_conversation(self, user_id: int, conversation_id: int, user_message: str, 
                         assistant_response: str, timestamp: datetime = None):
         """
-        Add a conversation to memory system
+        Add a conversation to memory system (incremental vector store update)
         
         Args:
             user_id: User ID
+            conversation_id: Conversation ID from database
             user_message: User's message
             assistant_response: Assistant's response
             timestamp: Timestamp of conversation
         """
-        # Add to short-term memory
-        self.short_term.add_exchange(user_message, assistant_response, timestamp)
+        # Short-term memory is DB-based (no action needed)
+        # Long-term memory: add to vector store incrementally
+        if timestamp is None:
+            timestamp = now_central()
         
-        # Long-term memory will update automatically when queried
-        # (rebuilds index periodically)
+        try:
+            self.long_term.add_conversation(
+                user_id=user_id,
+                conversation_id=conversation_id,
+                user_message=user_message,
+                assistant_response=assistant_response,
+                timestamp=timestamp
+            )
+        except Exception as e:
+            print(f"Warning: Could not add conversation to vector store: {e}")
     
     def get_full_context(self, user_id: int, current_query: str) -> str:
         """
@@ -59,29 +70,24 @@ class MemoryManager:
             context_parts.append("=== USER PROFILE ===")
             context_parts.append(profile)
         
-        # 2. Short-Term Memory - Recent conversation
-        short_term_context = self.short_term.get_formatted_context(num_exchanges=5)
+        # 2. Short-Term Memory - Recent conversation (DB-based, last 8 messages)
+        short_term_context = self.short_term.get_formatted_context(user_id, num_exchanges=8)
         if short_term_context and "No recent" not in short_term_context:
             context_parts.append("\n=== RECENT CONVERSATION ===")
             context_parts.append(short_term_context)
         
-        # 3. Long-Term Memory - Semantically similar past conversations
-        similar_context = self.long_term.get_formatted_similar_context(
-            current_query, user_id, top_k=2
-        )
-        if similar_context:
-            context_parts.append("\n=== RELEVANT PAST CONVERSATIONS ===")
-            context_parts.append(similar_context)
-        
-        # 4. Episodic Memory - Recent daily summaries
-        recent_summaries = self.episodic.get_recent_summaries(user_id, days=3)
-        if recent_summaries:
-            context_parts.append("\n=== RECENT DAILY SUMMARIES ===")
-            for summary in recent_summaries[:2]:  # Only include last 2 days
-                summary_text = self.episodic.get_formatted_summary(
-                    user_id, summary.date
-                )
-                context_parts.append(summary_text)
+        # 3. Long-Term Memory - Semantically similar past context
+        # Retrieves top-1 conversation + top-2 summaries/facts (max 3 total, ≤2 sentences each)
+        try:
+            similar_context = self.long_term.get_formatted_similar_context(
+                current_query, user_id, top_k=3
+            )
+            if similar_context:
+                context_parts.append("\n=== RELEVANT PAST CONTEXT ===")
+                context_parts.append(similar_context)
+        except Exception as e:
+            # Gracefully handle vector store errors
+            print(f"Warning: Long-term memory retrieval failed: {e}")
         
         return "\n".join(context_parts)
     
@@ -182,9 +188,14 @@ class MemoryManager:
         """
         self.long_term.build_memory_index(user_id)
     
-    def clear_short_term(self):
-        """Clear short-term memory buffer"""
-        self.short_term.clear()
+    def clear_short_term(self, user_id: int = None):
+        """
+        Clear short-term memory buffer (no-op for DB-based implementation)
+        
+        Args:
+            user_id: User ID (optional)
+        """
+        self.short_term.clear(user_id)
     
     def get_memory_stats(self, user_id: int) -> Dict:
         """
@@ -197,8 +208,38 @@ class MemoryManager:
             Dictionary with memory stats
         """
         return {
-            "short_term_size": self.short_term.get_size(),
-            "long_term_conversations": len(self.long_term.conversation_ids),
+            "short_term_size": self.short_term.get_size(user_id),
             "recent_summaries": len(self.episodic.get_recent_summaries(user_id, days=7)),
             "medications_count": len(self.structured.get_medication_schedule(user_id).split('\n')) - 2
         }
+    
+    def add_daily_summary(self, user_id: int, summary_text: str, date: datetime = None):
+        """
+        Add a daily summary to the vector store
+        
+        Args:
+            user_id: User ID
+            summary_text: Summary text (3-6 lines)
+            date: Date of the summary (defaults to today)
+        """
+        if date is None:
+            date = now_central()
+        
+        try:
+            self.long_term.add_summary(user_id, summary_text, date)
+        except Exception as e:
+            print(f"Warning: Could not add summary to vector store: {e}")
+    
+    def add_profile_fact(self, user_id: int, fact: str, fact_type: str = "general"):
+        """
+        Add a profile fact to the vector store
+        
+        Args:
+            user_id: User ID
+            fact: One-liner fact about the user
+            fact_type: Type of fact (e.g., "meal_time", "preference")
+        """
+        try:
+            self.long_term.add_profile_fact(user_id, fact, fact_type)
+        except Exception as e:
+            print(f"Warning: Could not add profile fact to vector store: {e}")

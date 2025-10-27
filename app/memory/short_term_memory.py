@@ -1,82 +1,119 @@
-from utils.timezone_utils import now_central
 """
-Short-term memory buffer for immediate conversation context
-Uses in-memory deque to retain last 10-15 exchanges
+Short-term memory - persistent, DB-based recent conversation context
+Fetches last 8-10 messages directly from the database
 """
 
-from collections import deque
 from typing import List, Dict
 from datetime import datetime
+from app.database.crud import ConversationCRUD
 
 
 class ShortTermMemory:
-    """Manages short-term conversation buffer"""
+    """Manages short-term conversation context from database"""
     
-    def __init__(self, max_size: int = 15):
+    def __init__(self, max_size: int = 10):
         """
-        Initialize short-term memory buffer
+        Initialize short-term memory
         
         Args:
-            max_size: Maximum number of exchanges to retain (default: 15)
+            max_size: Maximum number of recent messages to fetch (default: 10)
         """
-        self.buffer = deque(maxlen=max_size)
         self.max_size = max_size
     
-    def add_exchange(self, user_message: str, assistant_response: str, 
-                    timestamp: datetime = None):
-        """Add a conversation exchange to the buffer"""
-        if timestamp is None:
-            timestamp = now_central()
-        
-        exchange = {
-            "user_message": user_message,
-            "assistant_response": assistant_response,
-            "timestamp": timestamp
-        }
-        self.buffer.append(exchange)
-    
-    def get_recent_context(self, num_exchanges: int = None) -> List[Dict]:
+    def get_recent_context(self, user_id: int, num_exchanges: int = None) -> List[Dict]:
         """
-        Get recent conversation exchanges
+        Get recent conversation exchanges from database
         
         Args:
-            num_exchanges: Number of recent exchanges to retrieve (default: all)
+            user_id: User ID
+            num_exchanges: Number of recent exchanges to retrieve (default: max_size)
         
         Returns:
             List of conversation exchanges
         """
-        if num_exchanges is None or num_exchanges >= len(self.buffer):
-            return list(self.buffer)
+        if num_exchanges is None:
+            num_exchanges = self.max_size
         
-        return list(self.buffer)[-num_exchanges:]
+        # Fetch from database
+        conversations = ConversationCRUD.get_user_conversations(user_id, limit=num_exchanges)
+        
+        if not conversations:
+            return []
+        
+        # Convert to exchange format
+        exchanges = []
+        for conv in reversed(conversations):  # Reverse to get chronological order
+            exchanges.append({
+                "user_message": conv.message,
+                "assistant_response": conv.response,
+                "timestamp": conv.timestamp
+            })
+        
+        return exchanges
     
-    def get_formatted_context(self, num_exchanges: int = None) -> str:
+    def get_formatted_context(self, user_id: int, num_exchanges: int = None) -> str:
         """
-        Get formatted string of recent context for AI prompts
+        Get formatted string of recent context for AI prompts (compact, ~500 tokens)
         
         Args:
-            num_exchanges: Number of recent exchanges to include
+            user_id: User ID
+            num_exchanges: Number of recent exchanges to include (default: 8)
         
         Returns:
             Formatted conversation context
         """
-        exchanges = self.get_recent_context(num_exchanges)
+        if num_exchanges is None:
+            num_exchanges = min(8, self.max_size)  # Default to 8 for token efficiency
+        
+        exchanges = self.get_recent_context(user_id, num_exchanges)
         
         if not exchanges:
             return "No recent conversation history."
         
-        context = "Recent conversation context:\n"
+        # Compact format to save tokens
+        context_lines = []
         for exchange in exchanges:
-            context += f"User: {exchange['user_message']}\n"
-            context += f"Carely: {exchange['assistant_response']}\n"
-            context += "---\n"
+            # Truncate long messages to keep under ~500 tokens total
+            user_msg = exchange['user_message'][:150]
+            asst_msg = exchange['assistant_response'][:150]
+            context_lines.append(f"User: {user_msg}")
+            context_lines.append(f"Carely: {asst_msg}")
         
-        return context
+        return "\n".join(context_lines)
     
-    def clear(self):
-        """Clear the short-term memory buffer"""
-        self.buffer.clear()
+    def clear(self, user_id: int = None):
+        """
+        Clear short-term memory (no-op for DB-based implementation)
+        Memory is persistent in database
+        
+        Args:
+            user_id: User ID (optional, for compatibility)
+        """
+        # No action needed - memory is in database
+        pass
     
-    def get_size(self) -> int:
-        """Get current number of exchanges in buffer"""
-        return len(self.buffer)
+    def get_size(self, user_id: int) -> int:
+        """
+        Get current number of exchanges available
+        
+        Args:
+            user_id: User ID
+        
+        Returns:
+            Number of recent exchanges
+        """
+        exchanges = self.get_recent_context(user_id, self.max_size)
+        return len(exchanges)
+    
+    def add_exchange(self, user_message: str, assistant_response: str, 
+                    timestamp: datetime = None):
+        """
+        Legacy method for compatibility (no-op - conversations saved via CRUD)
+        
+        Args:
+            user_message: User's message
+            assistant_response: Assistant's response
+            timestamp: Timestamp
+        """
+        # No action needed - conversations are saved via ConversationCRUD
+        pass

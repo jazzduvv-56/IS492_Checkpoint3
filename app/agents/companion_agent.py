@@ -403,6 +403,35 @@ Be gentle, patient, and use simple everyday language. Never use medical jargon."
             conversation_type: str = "general") -> Dict[str, Any]:
         """Generate AI response with context and tools using memory system"""
         try:
+            # Check if this is a time-intent query (handle without LLM)
+            time_query_keywords = ['what time', 'time now', 'current time', 'what\'s the time', 
+                                   'tell me the time', 'time is it', 'what time is it']
+            message_lower = user_message.lower()
+            is_time_query = any(keyword in message_lower for keyword in time_query_keywords)
+            
+            if is_time_query:
+                # Get current time using timezone utility
+                current_time = now_central()
+                time_str = current_time.strftime("%I:%M %p %Z")
+                time_response = f"It's {time_str} right now."
+                
+                # Save this simple interaction
+                ConversationCRUD.save_conversation(
+                    user_id=user_id,
+                    message=user_message,
+                    response=time_response,
+                    conversation_type="time_query"
+                )
+                
+                return {
+                    "response": time_response,
+                    "sentiment_score": 0.5,
+                    "sentiment_label": "neutral",
+                    "alert_sent": False,
+                    "quick_actions": [],
+                    "is_emergency": False
+                }
+            
             # Check if this is a memory-specific query
             memory_query_keywords = ['remember', 'talked about', 'medication schedule', 
                                    'breakfast', 'lunch', 'dinner', 'meal', 

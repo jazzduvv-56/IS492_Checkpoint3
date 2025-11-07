@@ -16,7 +16,10 @@ from utils.sentiment_analysis import analyze_sentiment
 from utils.emergency_detection import detect_emergency
 from app.memory.memory_manager import MemoryManager
 from utils.pii_redaction import PIIRedactor, sanitize_before_storage, generate_safe_response_prompt
-
+if "GROQ_API_KEY" in st.secrets:
+    os.environ["GROQ_API_KEY"] = st.secrets["GROQ_API_KEY"]
+    os.environ["TELEGRAM_BOT_TOKEN"] = st.secrets["TELEGRAM_BOT_TOKEN"]
+    os.environ["TELEGRAM_CHAT_ID"] = st.secrets["TELEGRAM_CHAT_ID"]
 
 class CompanionAgent:
 
